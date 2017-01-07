@@ -119,8 +119,10 @@ function TempSensor(log, config) {
 
         if (this.shortIdentifier == message.shortIdentifier) {
 
+          
+
           var m = JSON.parse(message)
-          m.timestamp = new Date();
+          m.timestamp = new Date();          
 
           var t = m.temperature;
           var h = m.humidity;
@@ -141,7 +143,7 @@ function TempSensor(log, config) {
 
           console.log("[processing] " + channel + " to " + message)
 
-          elk(JSON.stringify(m))
+          elk(m)
         } 
       }
 
