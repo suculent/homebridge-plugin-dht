@@ -86,7 +86,8 @@ function TempSensor(log, config) {
     };
 
     var elk = http.request(options, callback);
-    var data = JSON.stringify(json_message)
+    var data = JSON.stringify(json_message);
+    console.log(data);
     elk.write(data);
     elk.end();
   }
@@ -120,9 +121,11 @@ function TempSensor(log, config) {
         if (this.shortIdentifier == message.shortIdentifier) {
 
           
-
           var m = JSON.parse(message)
           m.timestamp = new Date();          
+
+          // because elasticsearch does not like '-'' in identifiers
+          m.shortIdentifier = m.shortIdentifier.replace('-', '_');
 
           var t = m.temperature;
           var h = m.humidity;
