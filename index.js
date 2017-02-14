@@ -39,12 +39,17 @@ function TempSensor(log, config) {
   this.temperature = 0;
   this.humidity = 0; 
 
+  this.elk_host = config['elk_host'];
+  this.elk_port = config['elk_port'];
+  this.elk_index = config['elk_index'];
+
   // Should use something from device identifier to lock UUIDs
+  var nsecs = parseInt(this.shortIdentifier.substring(5, this.shortIdentifier.length))
   var sensorUUID = uuidV1({
     node: [0x01, 0x23, 0x45, 0x67, 0x89, 0xab],
     clockseq: 0x1234,
-    msecs: new Date('2011-11-01').getTime(),
-    nsecs: parseInt(this.shortIdentifier.substring(5, this.shortIdentifier.length))
+    msecs: new Date('1980-10-15').getTime(),
+    nsecs: nsecs
   });
 
   this.sensor = exports.accessory = new Accessory('TempSensor', sensorUUID);
@@ -53,7 +58,7 @@ function TempSensor(log, config) {
   this.temperatureService
   .getCharacteristic(Characteristic.CurrentTemperature)
   .on('get', function(callback) {
-    console.log("T:"+this.temperature);
+    console.log("Get T:"+this.temperature);
     callback(null, this.temperature);
   });
 
@@ -61,14 +66,14 @@ function TempSensor(log, config) {
   this.humidityService  
   .getCharacteristic(Characteristic.CurrentRelativeHumidity)
   .on('get', function(callback) {    
-    console.log("H:"+this.humidity);
+    console.log("Get H:"+this.humidity);
     callback(null, this.humidity);
   });
 
   // randomize our temperature reading every 3 seconds
   setInterval(function(a) {
 
-    console.log("Timer Update > " + a.temperature + "°C " + a.humidity + "%");
+    a.log("Timer Update > " + a.temperature + "°C " + a.humidity + "%");
     
     a.sensor
       .getService(Service.TemperatureSensor)
@@ -95,17 +100,17 @@ function TempSensor(log, config) {
       this.mqttChannel = default_mqtt_channel;        
   }
 
-  init_mqtt(this.mqttBroker, this.mqttChannel, this.temperatureService, this.humidityService, this.log, this.sensor, this);
+  init_mqtt(this.mqttBroker, this.mqttChannel, this.temperatureService, this.humidityService, log, this.sensor, this);
 
   /* Sends a JSON message to Elasticsearch database */
-  function elk(json_message)
+  function elk(json_message, host, port, index)
   {
     var http = require('http');
 
     var options = {
-      host: 'mini.local',
-      port: '9200',
-      path: '/telemetry-1/status',
+      host: host,
+      port: port,
+      path: index,
       method: 'POST'
     };
 
@@ -131,8 +136,6 @@ function TempSensor(log, config) {
     log("Connecting to mqtt broker: " + broker_address + " channel: "+channel)
     mqttClient = mqtt.connect(broker_address)
 
-    //var that = this
-
     mqttClient.on('connect', function () {
       log("MQTT connected, subscribing to: " + channel)
       mqttClient.subscribe(channel)
@@ -149,20 +152,18 @@ function TempSensor(log, config) {
     })  
 
     var that = a;
-
+    
     mqttClient.on('message', function (topic, message) {
       
-      log("t-message: " + message.toString())
-      console.log("c-message: " + message.toString())
+      a.log("t-message: " + message.toString())
 
-      console.log("MQTT get 0 >");
+      a.log("MQTT get 0 >");
       
       if (topic == channel) {
 
         console.log("MQTT get 1 >");
 
         if (this.shortIdentifier == message.shortIdentifier) {
-
           
           var m = JSON.parse(message)
           m.timestamp = new Date();          
@@ -173,14 +174,8 @@ function TempSensor(log, config) {
           var t = m.temperature;
           var h = m.humidity;
 
-          console.log("t:" + t + " h:" + h);
-
           that.temperature = t;
           that.humidity = h;
-
-          console.log("te:" + that.temperature + " hu:" + that.humidity);
-
-          console.log("MQTT get 2 >");
 
           that.sensor
             .getService(Service.TemperatureSensor)
@@ -192,8 +187,11 @@ function TempSensor(log, config) {
 
           console.log("[processing] " + channel + " to " + message)
 
-          elk(m)
-        } 
+          elk(m, a.host, a.port, a.index)
+
+        } else {
+          a.log("Message for different shortIdentifier: "+message.shortIdentifier)
+        }
       }
 
     })
