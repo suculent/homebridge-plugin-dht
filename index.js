@@ -18,6 +18,7 @@ var mqtt = require('mqtt');
 const uuidV1 = require('uuid/v1');
 
 var mqttClient = null; // will be non-null if working
+var mqtt = require('mqtt')
 
 module.exports = function(homebridge) {
     Service = homebridge.hap.Service;
@@ -34,9 +35,7 @@ function TempSensor(log, config) {
 
   var querystring = require('querystring');
   var http = require('http');
-  var mqtt = require('mqtt')
 
-  this.log = log;
   this.name = config['name'] || "DHT Sensor";
   this.mqttBroker = config['mqtt_broker'];
   this.mqttChannel = config['mqtt_channel'] || default_mqtt_channel;
@@ -139,7 +138,7 @@ function TempSensor(log, config) {
 
   function init_mqtt(broker_address, channel, ts, hs, log, sensor, a) {
     log("Connecting to mqtt broker: " + broker_address + " channel: "+channel)
-    mqttClient = mqtt.connect(broker_address)
+    var mqttClient = mqtt.connect(broker_address)
 
     mqttClient.on('connect', function () {
       log("MQTT connected, subscribing to: " + channel)
@@ -147,13 +146,11 @@ function TempSensor(log, config) {
     })
 
     mqttClient.on('error', function () {
-      log("MQTT connected, subscribing to: " + channel)
-      mqttClient.subscribe(channel)
+      log("MQTT error")
     })
 
     mqttClient.on('offline', function () {
-      log("MQTT connected, subscribing to: " + channel)
-      mqttClient.subscribe(channel)
+      log("MQTT offline")
     })  
 
     var that = a;
@@ -191,8 +188,7 @@ function TempSensor(log, config) {
             .getService(Service.HumiditySensor)
             .setCharacteristic(Characteristic.CurrentRelativeHumidity, that.humidity);
 
-          console.log("[processing] " + channel + " to " + message);
-          this.log("[processing] " + channel + " to " + message);
+          a.log("[processing] " + channel + " to " + message);
 
           elk(m, a.host, a.port, a.index)
 
