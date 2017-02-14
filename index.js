@@ -7,15 +7,9 @@ var Service, Characteristic;
 
 // should go from config
 var default_broker_address = 'mqtt://localhost'
-var default_mqtt_channel = "/sht/2"
+var default_mqtt_channel = "/dht/0"
 
 'use strict';
-
-var querystring = require('querystring');
-var http = require('http');
-var mqtt = require('mqtt')
-
-var mqttClient = null; // will be non-null if working
 
 module.exports = function(homebridge) {
     Service = homebridge.hap.Service;
@@ -24,14 +18,20 @@ module.exports = function(homebridge) {
 }
 
 function TempSensor(log, config) {
-  this.log = log;
 
+  var querystring = require('querystring');
+  var http = require('http');
+  var mqtt = require('mqtt')
+
+  this.log = log;
   this.name = config['name'] || "DHT Sensor";
   this.mqttBroker = config['mqtt_broker'];
-  this.mqttChannel = config['mqtt_channel'];
+  this.mqttChannel = config['mqtt_channel'] || default_mqtt_channel;
   this.shortIdentifier = config['device_identifier'];   
   this.temperature = 0;
   this.humidity = 0; 
+
+  this.log("Registering service name " + this.name);
   
   this.temperatureService = new Service.TemperatureSensor(this.name, "temperature")
   this.temperatureService
@@ -42,8 +42,6 @@ function TempSensor(log, config) {
   this.humidityService
     .getCharacteristic(Characteristic.CurrentRelativeHumidity)
     .on('get', this.getHumidity.bind(this))
-
-  var that = this
 
   this.getServices();
 
@@ -60,7 +58,9 @@ function TempSensor(log, config) {
       this.mqttChannel = default_mqtt_channel;        
   }
 
-  init_mqtt(this.mqttBroker, this.mqttChannel, this.temperatureService, this.humidityService);
+  this.mqttClient = 0;
+
+  init_mqtt(this.mqttBroker, this.mqttChannel, this.temperatureService, this.humidityService, this.mqttClient);
 
   /* Sends a JSON message to Elasticsearch database */
   function elk(json_message)
@@ -86,66 +86,72 @@ function TempSensor(log, config) {
     };
 
     var elk = http.request(options, callback);
-    var data = JSON.stringify(json_message)
+    var data = JSON.stringify(json_message);
     elk.write(data);
     elk.end();
   }
 
-  function init_mqtt(broker_address, channel, ts, hs) {
-    that.log("Connecting to mqtt broker: " + broker_address + " channel: "+channel)
-    mqttClient = mqtt.connect(broker_address)
+  function init_mqtt(broker_address, channel, ts, hs, mq) {
+    console.log("Connecting to mqtt broker: " + broker_address + " channel: "+channel);
+    mq = mqtt.connect(broker_address);
 
-    //var that = this
-
-    mqttClient.on('connect', function () {
-      that.log("MQTT connected, subscribing to: " + channel)
-      mqttClient.subscribe(channel)
+    mq.on('connect', function () {
+      console.log("MQTT connected, subscribing to: " + channel);
+      this.mqttClient.subscribe(channel);
     })
 
-    mqttClient.on('error', function () {
-      that.log("MQTT connected, subscribing to: " + channel)
-      mqttClient.subscribe(channel)
+    mq.on('error', function () {
+      console.log("MQTT error.");
     })
 
-    mqttClient.on('offline', function () {
-      that.log("MQTT connected, subscribing to: " + channel)
-      mqttClient.subscribe(channel)
+    mq.on('offline', function () {
+      console.log("MQTT offline");
     })  
 
-    mqttClient.on('message', function (topic, message) {
-      that.log("message: " + message.toString())
+    mq.on('message', function (topic, message) {
+
+      console.log("topic: " + topic + " channel: " + channel);
+      console.log("si: " + this.shortIdentifier);
+      console.log("message: " + message.toString());
       
       if (topic == channel) {
 
-        if (this.shortIdentifier == message.shortIdentifier) {
+      	console.log("msi: " + message.shortIdentifier);
 
-          
+	var m = JSON.parse(message);
 
-          var m = JSON.parse(message)
+        if (this.shortIdentifier == m.shortIdentifier) {
+
           m.timestamp = new Date();          
 
           var t = m.temperature;
           var h = m.humidity;
 
-          that.temperature = t;
           this.temperature = t;
-
-          that.humidity = h;
           this.humidity = h;
 
           ts
           .getCharacteristic(Characteristic.CurrentTemperature)
-          .setValue(this.temperature);
+          .setValue(t);
 
           hs
           .getCharacteristic(Characteristic.CurrentRelativeHumidity)
-          .setValue(this.humidity)
+          .setValue(h);
 
-          console.log("[processing] " + channel + " to " + message)
+          console.log("[processing] " + channel + " to " + message);
+          this.log("[processing] " + channel + " to " + message);
 
           elk(m)
-        } 
-      }
+        } else {
+		console.log("shortIdentifier not equal" + this.shortIdentifier);
+		this.log("shortIdentifier not equal" + this.shortIdentifier);
+	}
+
+
+      } else {
+	this.log("topic not a channel");
+	console.log("topic not a channel");
+}
 
     })
   }
