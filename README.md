@@ -15,7 +15,7 @@ Install this as a homebridge plugin on the device where you run homebridge. You 
 
     git clone https://github.com/suculent/homebridge-plugin-dht.git
     cd homebridge-plugin-dht/
-    sudo npm install -g .        
+    [sudo] npm install -g .
 
 Re/start your Homebridge now.
 
@@ -37,7 +37,10 @@ Add 'Homebridge-IoT' on your iPhone as a new Homekit accessory. Temperature Sens
       "description" : "Temperature Sensor",
       "device_identifier" : "SHT21A-12824453",
       "mqtt_broker" : "mqtt://192.168.1.21",
-      "mqtt_channel" : "/sht/2/status"
+      "mqtt_channel" : "/sht/2/status",
+      "elk_host" : "mini",
+      "elk_port" : "9200",
+      "elk_index" : "telemetry-1/status"
     }
   ]
 ```
