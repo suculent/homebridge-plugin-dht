@@ -1,12 +1,13 @@
 {
   "name": "homebridge-dht",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "description": "DHT Sensor plugin for Homebridge",
   "main": "index.js",
   "author": "Matej Sychra",
   "license": "ISC",
   "dependencies": {
     "mqtt": "^2.0.1"
+    "uuid" : ">0"
   },
   "repository": {
     "type": "git",

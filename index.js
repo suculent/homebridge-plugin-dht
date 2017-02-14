@@ -3,7 +3,7 @@
  */
 
 
-var Service, Characteristic;
+var Service, Characteristic, Accessory;
 
 // should go from config
 var default_broker_address = 'mqtt://localhost'
@@ -11,13 +11,26 @@ var default_mqtt_channel = "/dht/0"
 
 'use strict';
 
+var querystring = require('querystring');
+var http = require('http');
+var mqtt = require('mqtt');
+
+const uuidV1 = require('uuid/v1');
+
+var mqttClient = null; // will be non-null if working
+
 module.exports = function(homebridge) {
     Service = homebridge.hap.Service;
     Characteristic = homebridge.hap.Characteristic;
+    Accessory = homebridge.hap.Accessory;
+    
+    // ??
     homebridge.registerAccessory("homebridge-dht", "TempSensor", TempSensor);
 }
 
 function TempSensor(log, config) {
+
+  this.log = log;
 
   var querystring = require('querystring');
   var http = require('http');
@@ -31,19 +44,53 @@ function TempSensor(log, config) {
   this.temperature = 0;
   this.humidity = 0; 
 
-  this.log("Registering service name " + this.name);
-  
-  this.temperatureService = new Service.TemperatureSensor(this.name, "temperature")
+  this.elk_host = config['elk_host'];
+  this.elk_port = config['elk_port'];
+  this.elk_index = config['elk_index'];
+
+  // Should use something from device identifier to lock UUIDs
+  var nsecs = parseInt(this.shortIdentifier.substring(5, this.shortIdentifier.length))
+  var sensorUUID = uuidV1({
+    node: [0x01, 0x23, 0x45, 0x67, 0x89, 0xab],
+    clockseq: 0x1234,
+    msecs: new Date('1980-10-15').getTime(),
+    nsecs: nsecs
+  });
+
+  this.sensor = exports.accessory = new Accessory('TempSensor', sensorUUID);
+
+  this.temperatureService = this.sensor.addService(Service.TemperatureSensor)
   this.temperatureService
-    .getCharacteristic(Characteristic.CurrentTemperature)
-    .on('get', this.getTemperature.bind(this))
+  .getCharacteristic(Characteristic.CurrentTemperature)
+  .on('get', function(callback) {
+    console.log("Get T:"+this.temperature);
+    callback(null, this.temperature);
+  });
 
-  this.humidityService = new Service.HumiditySensor(this.name, "humidity")
-  this.humidityService
-    .getCharacteristic(Characteristic.CurrentRelativeHumidity)
-    .on('get', this.getHumidity.bind(this))
+  this.humidityService = this.sensor.addService(Service.HumiditySensor)
+  this.humidityService  
+  .getCharacteristic(Characteristic.CurrentRelativeHumidity)
+  .on('get', function(callback) {    
+    console.log("Get H:"+this.humidity);
+    callback(null, this.humidity);
+  });
 
-  this.getServices();
+  // randomize our temperature reading every 3 seconds
+  setInterval(function(a) {
+
+    a.log("Timer Update > " + a.temperature + "°C " + a.humidity + "%");
+    
+    a.sensor
+      .getService(Service.TemperatureSensor)
+      .setCharacteristic(Characteristic.CurrentTemperature, a.temperature);
+
+    a.sensor
+      .getService(Service.HumiditySensor)
+      .setCharacteristic(Characteristic.CurrentRelativeHumidity, a.humidity);
+    
+  }, 10000, this);  
+
+  this.getServices(this);
 
   if (!this.mqttBroker) {
       this.log.warn('Config is missing mqtt_broker, fallback to default.');        
@@ -58,19 +105,17 @@ function TempSensor(log, config) {
       this.mqttChannel = default_mqtt_channel;        
   }
 
-  this.mqttClient = 0;
-
-  init_mqtt(this.mqttBroker, this.mqttChannel, this.temperatureService, this.humidityService, this.mqttClient);
+  init_mqtt(this.mqttBroker, this.mqttChannel, this.temperatureService, this.humidityService, log, this.sensor, this);
 
   /* Sends a JSON message to Elasticsearch database */
-  function elk(json_message)
+  function elk(json_message, host, port, index)
   {
     var http = require('http');
 
     var options = {
-      host: 'mini.local',
-      port: '9200',
-      path: '/telemetry-1/status',
+      host: host,
+      port: port,
+      path: index,
       method: 'POST'
     };
 
@@ -87,71 +132,74 @@ function TempSensor(log, config) {
 
     var elk = http.request(options, callback);
     var data = JSON.stringify(json_message);
+    console.log(data);
     elk.write(data);
     elk.end();
   }
 
-  function init_mqtt(broker_address, channel, ts, hs, mq) {
-    console.log("Connecting to mqtt broker: " + broker_address + " channel: "+channel);
-    mq = mqtt.connect(broker_address);
+  function init_mqtt(broker_address, channel, ts, hs, log, sensor, a) {
+    log("Connecting to mqtt broker: " + broker_address + " channel: "+channel)
+    mqttClient = mqtt.connect(broker_address)
 
-    mq.on('connect', function () {
-      console.log("MQTT connected, subscribing to: " + channel);
-      this.mqttClient.subscribe(channel);
+    mqttClient.on('connect', function () {
+      log("MQTT connected, subscribing to: " + channel)
+      mqttClient.subscribe(channel)
     })
 
-    mq.on('error', function () {
-      console.log("MQTT error.");
+    mqttClient.on('error', function () {
+      log("MQTT connected, subscribing to: " + channel)
+      mqttClient.subscribe(channel)
     })
 
-    mq.on('offline', function () {
-      console.log("MQTT offline");
+    mqttClient.on('offline', function () {
+      log("MQTT connected, subscribing to: " + channel)
+      mqttClient.subscribe(channel)
     })  
 
-    mq.on('message', function (topic, message) {
+    var that = a;
+    
+    mqttClient.on('message', function (topic, message) {
+      
+      a.log("t-message: " + message.toString())
 
-      console.log("topic: " + topic + " channel: " + channel);
-      console.log("si: " + this.shortIdentifier);
-      console.log("message: " + message.toString());
+      a.log("MQTT get 0 >");
       
       if (topic == channel) {
 
-      	console.log("msi: " + message.shortIdentifier);
+        console.log("MQTT get 1 >");
 
-	var m = JSON.parse(message);
-
-        if (this.shortIdentifier == m.shortIdentifier) {
+        if (this.shortIdentifier == message.shortIdentifier) {
+          
+          var m = JSON.parse(message)
 
           m.timestamp = new Date();          
+
+          // because elasticsearch does not like '-'' in identifiers
+          m.shortIdentifier = m.shortIdentifier.replace('-', '_');
 
           var t = m.temperature;
           var h = m.humidity;
 
-          this.temperature = t;
-          this.humidity = h;
+          that.temperature = t;
+          that.humidity = h;
 
-          ts
-          .getCharacteristic(Characteristic.CurrentTemperature)
-          .setValue(t);
+          that.sensor
+            .getService(Service.TemperatureSensor)
+            .setCharacteristic(Characteristic.CurrentTemperature, that.temperature);
 
-          hs
-          .getCharacteristic(Characteristic.CurrentRelativeHumidity)
-          .setValue(h);
+          that.sensor
+            .getService(Service.HumiditySensor)
+            .setCharacteristic(Characteristic.CurrentRelativeHumidity, that.humidity);
 
           console.log("[processing] " + channel + " to " + message);
           this.log("[processing] " + channel + " to " + message);
 
-          elk(m)
+          elk(m, a.host, a.port, a.index)
+
         } else {
-		console.log("shortIdentifier not equal" + this.shortIdentifier);
-		this.log("shortIdentifier not equal" + this.shortIdentifier);
-	}
-
-
-      } else {
-	this.log("topic not a channel");
-	console.log("topic not a channel");
-}
+          a.log("Message for different shortIdentifier: "+message.shortIdentifier)
+        }
+      }
 
     })
   }
@@ -175,7 +223,7 @@ TempSensor.prototype.getServices = function() {
     informationService
       .setCharacteristic(Characteristic.Manufacturer, "Page 42")
       .setCharacteristic(Characteristic.Model, "Temperature Sensor")
-      .setCharacteristic(Characteristic.SerialNumber, "3");
+      .setCharacteristic(Characteristic.SerialNumber, "4");
 
     return [this.temperatureService, this.humidityService, informationService];
 }
