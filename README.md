@@ -1,5 +1,7 @@
 ## Purpose
 
+[![Greenkeeper badge](https://badges.greenkeeper.io/suculent/homebridge-plugin-dht.svg)](https://greenkeeper.io/)
+
 This is a plugin for Homebridge, that provides virtual Temperature and Humidity sensor using data from specific MQTT channel. Includes sample LUA code for ESP8266-based IoT sensing device.
 
 ## Requirements
